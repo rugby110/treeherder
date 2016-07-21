@@ -299,8 +299,7 @@
                     ON jt.`job_group_id` = jg.id
                   LEFT JOIN `REP0`.reference_data_signatures rds
                     ON j.signature = rds.signature
-                  WHERE j.id = ?
-                  GROUP BY j.id",
+                  WHERE j.id = ?",
 
             "host_type":"read_host"
         },
@@ -355,9 +354,7 @@
                   LEFT JOIN `REP0`.reference_data_signatures rds
                     ON j.signature = rds.signature
                   WHERE 1
-                  REP1
-                  GROUP BY j.id
-                  ",
+                  REP1",
 
             "host_type":"read_host"
         },
@@ -415,7 +412,6 @@
                     ON rs.id = j.result_set_id
                   WHERE 1
                   REP1
-                  GROUP BY j.id
                   ORDER BY
                     rs.push_timestamp DESC
                   ",
