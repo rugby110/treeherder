@@ -556,6 +556,7 @@ for alias in DATABASES:
 # NB: On Heroku this will be set to localhost, so that the connection
 # occurs via the stunnel established by memcachier-tls-buildpack.
 MEMCACHED_LOCATION = TREEHERDER_MEMCACHED.strip(',').split(',')
+PYLIBMC_COMPRESS_LEVEL = 1
 
 CACHES = {
     "default": {
@@ -599,8 +600,21 @@ if env.bool('IS_HEROKU', default=False):
         "USERNAME": env('MEMCACHIER_USERNAME', default=None),
         "PASSWORD": env('MEMCACHIER_PASSWORD', default=None),
         "OPTIONS": {
+            # Enable faster IO
+            'no_block': True,
+            'tcp_nodelay': True,
+
+            # Keep connection alive
+            'tcp_keepalive': True,
+
+            # Use consistent hashing for failover
             "ketama": True,
-            "tcp_nodelay": True,
+
+            # Configure failover timings
+            'connect_timeout': 2000,
+            'remove_failed': 4,
+            'retry_timeout': 2,
+            'dead_timeout': 10
         },
     })
 
