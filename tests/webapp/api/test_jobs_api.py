@@ -389,7 +389,9 @@ def test_text_log_steps_and_errors(webapp, eleven_jobs_stored, jm, test_reposito
                         'search': 'failure 1',
                         'search_terms': ['failure 1'],
                         'bugs': {'open_recent': [], 'all_others': []}
-                    }
+                    },
+                    'classified_failures': [],
+                    'matches': []
                 },
                 {
                     'id': 2,
@@ -402,7 +404,9 @@ def test_text_log_steps_and_errors(webapp, eleven_jobs_stored, jm, test_reposito
                         'search': 'failure 2',
                         'search_terms': ['failure 2'],
                         'bugs': {'open_recent': [], 'all_others': []}
-                    }
+                    },
+                    'classified_failures': [],
+                    'matches': []
                 }
             ],
             'finished': '1970-01-01T00:03:20',
@@ -455,7 +459,9 @@ def test_text_log_errors(webapp, eleven_jobs_stored, jm, test_repository):
                 'search': 'failure 1',
                 'search_terms': ['failure 1'],
                 'bugs': {'open_recent': [], 'all_others': []}
-            }
+            },
+            'classified_failures': [],
+            'matches': []
         },
         {
             'id': 2,
@@ -468,7 +474,9 @@ def test_text_log_errors(webapp, eleven_jobs_stored, jm, test_repository):
                 'search': 'failure 2',
                 'search_terms': ['failure 2'],
                 'bugs': {'open_recent': [], 'all_others': []}
-            }
+            },
+            'classified_failures': [],
+            'matches': []
         }
     ]
 
