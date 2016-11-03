@@ -17,6 +17,7 @@ from treeherder.webapp.api import (artifact,
                                    refdata,
                                    resultset,
                                    runnable_jobs,
+                                   text_log_error,
                                    text_log_summary,
                                    text_log_summary_line)
 
@@ -115,6 +116,9 @@ default_router.register(r'failure-line', failureline.FailureLineViewSet,
 default_router.register(r'classified-failure',
                         classifiedfailure.ClassifiedFailureViewSet,
                         base_name='classified-failure')
+default_router.register(r'text-log-error',
+                        text_log_error.TextLogErrorViewSet,
+                        base_name='text-log-error')
 default_router.register(r'text-log-summary',
                         text_log_summary.TextLogSummaryViewSet,
                         base_name='text-log-summary')

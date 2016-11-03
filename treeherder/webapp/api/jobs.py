@@ -77,6 +77,11 @@ class JobsViewSet(viewsets.ViewSet):
 
         job['result_set_id'] = job['push_id']
 
+        th_job = Job.objects.get(repository__name=project,
+                                 project_specific_id=pk)
+        status_map = {k: v for k, v in Job.STATUSES}
+        job["autoclassify_status"] = status_map[th_job.autoclassify_status]
+
         return Response(job)
 
     @with_jobs
@@ -303,11 +308,15 @@ class JobsViewSet(viewsets.ViewSet):
         try:
             job = Job.objects.get(repository__name=project,
                                   project_specific_id=pk)
-        except job.DoesNotExist:
+        except Job.DoesNotExist:
             return Response("No job with id: {0}".format(pk),
                             status=HTTP_404_NOT_FOUND)
         textlog_errors = (TextLogError.objects
                           .filter(step__job=job)
+                          .select_related("failure_line")
+                          .prefetch_related("classified_failures",
+                                            "matches",
+                                            "matches__matcher")
                           .order_by('id'))
         return Response(serializers.TextLogErrorSerializer(textlog_errors,
                                                            many=True,

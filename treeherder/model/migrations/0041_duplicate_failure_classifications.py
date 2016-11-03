@@ -9,7 +9,7 @@ import treeherder.model.fields
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('model', '0039_push_and_commit_orm'),
+        ('model', '0040_push_and_commit_orm_2'),
     ]
 
     operations = [
