@@ -762,7 +762,9 @@ class Job(models.Model):
         Otherwise return None.
         """
         try:
-            text_log_errors = [TextLogError.objects.get(step__job=self)]
+            text_log_error = (TextLogError.objects
+                              .prefetch_related('matches')
+                              .get(step__job=self))
         except (TextLogError.DoesNotExist, TextLogError.MultipleObjectsReturned):
             return None
 
@@ -778,7 +780,7 @@ class Job(models.Model):
                    for detector in Matcher.objects.registered_detectors()):
             return None
 
-        return text_log_errors[0]
+        return text_log_error
 
     def update_autoclassification_bug(self, bug_number):
         text_log_error = self.get_manual_classification_line()
@@ -920,18 +922,11 @@ class JobNoteManager(models.Manager):
 
         # Only insert bugs for verified failures since these are automatically
         # mirrored to ES and the mirroring can't be undone
-        classified_failures = ClassifiedFailure.objects.filter(
-            best_for_lines__job_guid=job.guid,
-            best_for_lines__best_is_verified=True)
-
-        text_log_summary_lines = TextLogSummaryLine.objects.filter(
-            summary__job_guid=job.guid, verified=True).exclude(
-                bug_number=None)
-
-        bug_numbers = {item.bug_number
-                       for item in chain(classified_failures,
-                                         text_log_summary_lines)
-                       if item.bug_number}
+        bug_numbers = (ClassifiedFailure.objects
+                       .filter(best_for_errors__step__job=job,
+                               best_for_errors__best_is_verified=True)
+                       .exclude(bug_number=None)
+                       .values_list('bug_number', flat=True))
 
         for bug_number in bug_numbers:
             BugJobMap.objects.get_or_create(job=job,
@@ -986,12 +981,34 @@ class JobNote(models.Model):
             jm.update_last_job_classification(self.job.project_specific_id)
 
         # if a manually filed job, update the autoclassification information
-        if self.user:
-            if self.failure_classification.name in [
-                    "intermittent", "intermittent needs filing"]:
-                failure_line = self.job.get_manual_classification_line()
-                if failure_line:
-                    failure_line.update_autoclassification()
+        if not self.user:
+            return
+
+        if self.failure_classification.name not in [
+                "intermittent", "intermittent needs filing"]:
+            return
+
+        text_log_error = self.job.get_manual_classification_line()
+        if not text_log_error:
+            return
+        bug_numbers = set(BugJobMap.objects
+                          .filter(job=self.job)
+                          .values_list('bug_id', flat=True))
+
+        existing_bugs = set(ClassifiedFailure.objects
+                            .filter(error_matches__text_log_error=text_log_error)
+                            .values_list('bug_number', flat=True))
+
+        add_bugs = (bug_numbers - existing_bugs)
+        if not add_bugs:
+            return
+
+        manual_detector = Matcher.objects.get(name="ManualDetector")
+        for bug_number in add_bugs:
+            classification, _ = self.set_classification(manual_detector,
+                                                        bug_number=bug_numbers)
+        if len(add_bugs) == 1 and not existing_bugs:
+            self.mark_best_classification_verified(classification)
 
     def save(self, *args, **kwargs):
         super(JobNote, self).save(*args, **kwargs)
@@ -1163,18 +1180,6 @@ class FailureLine(models.Model):
 
         return rv
 
-    def update_autoclassification(self):
-        """
-        If a job is manually classified and has a single line in the logs matching a single
-        FailureLine, but the FailureLine has not matched any ClassifiedFailure, add a
-        new match due to the manual classification.
-        """
-
-        manual_detector = Matcher.objects.get(name="ManualDetector")
-
-        classification, _ = self.set_classification(manual_detector)
-        self.mark_best_classification_verified(classification)
-
     @es_connected()
     def elastic_search_insert(self):
         es_line = TestFailureLine.from_model(self)
@@ -1223,10 +1228,10 @@ class ClassifiedFailure(models.Model):
         # ON matches.classified_failure_id = <other.id> AND
         #    matches.failure_line_id = failure_match.failue_line_id
         delete_ids = []
-        for Match, key, matches in [(TextLogErrorMatch, "text_log_error",
-                                     self.error_matches.all()),
-                                    (FailureMatch, "failure_line",
-                                     self.matches.all())]:
+        for Line, Match, key, matches in [(TextLogError, TextLogErrorMatch, "text_log_error",
+                                           self.error_matches.all()),
+                                          (FailureLine, FailureMatch, "failure_line",
+                                          self.matches.all())]:
             for match in matches:
                 kwargs = {key: getattr(match, key)}
                 existing = Match.objects.filter(classified_failure=other, **kwargs)
@@ -1240,10 +1245,9 @@ class ClassifiedFailure(models.Model):
                     match.classified_failure = other
                     match.save()
             Match.objects.filter(id__in=delete_ids).delete()
-        FailureLine.objects.filter(best_classification=self).update(best_classification=other)
+            Line.objects.filter(best_classification=self).update(best_classification=other)
         self.delete()
 
-    # TODO: add indexes once we know which queries will be typically executed
 
     class Meta:
         db_table = 'classified_failure'
@@ -1469,7 +1473,7 @@ class TextLogError(models.Model):
     # has the special semantic that the line is ignored and should not be considered
     # for future autoclassifications.
     best_classification = FlexibleForeignKey("ClassifiedFailure",
-                                             related_name="best_for_error",
+                                             related_name="best_for_errors",
                                              null=True,
                                              db_index=True,
                                              on_delete=models.SET_NULL)
@@ -1544,24 +1548,14 @@ class TextLogError(models.Model):
 
         self.best_classification = classification
         self.best_is_verified = True
-        self.save()
+        self.save(update_fields=['best_classification',
+                                 'best_is_verified'])
         if self.failure_line:
             self.failure_line.best_classification = classification
             self.failure_line.best_is_verified = True
-            self.failure_line.save()
+            self.failure_line.save(update_fields=['best_classification',
+                                                  'best_is_verified'])
             self.failure_line.elastic_search_insert()
-
-    def update_autoclassification(self):
-        """
-        If a job is manually classified and has a single line in the logs matching a single
-        TextLogError, but the TextLogError has not matched any ClassifiedFailure, add a
-        new match due to the manual classification.
-        """
-
-        manual_detector = Matcher.objects.get(name="ManualDetector")
-
-        classification, _ = self.set_classification(manual_detector)
-        self.mark_best_classification_verified(classification)
 
 
 class TextLogErrorMatch(models.Model):
